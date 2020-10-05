@@ -27,20 +27,25 @@ let Settings = {
   'nearPlane': 1.0,
   'farPlane': 5000,
   'shadows': false,
+  'fog': {
+    color: 0xffffff,
+    near: 10,
+    far: 2200
+  },
   'lights': {
     'Ambient': [
       {'color': 0xcccccc, 'intensity': 0.3}
     ],
     'directional': [
       {
-        'position': {'x': 500, 'y': 500, 'z': 200},
+        'position': {'x': 500, 'y': 200, 'z': 200},
         'color': 0xffffff,
-        'intensity': 0.4
+        'intensity': 0.8
       },
       {
-        'position': {'x': -200, 'y': 500, 'z': 500},
+        'position': {'x': -200, 'y': 200, 'z': 500},
         'color': 0xffffff,
-        'intensity': 0.4
+        'intensity': 0.8
       },
 /*
       {

@@ -17,6 +17,7 @@ import {Rect} from "./rect.js";
 import {Colors} from "./colors.js";
 import {Coords} from "./coords.js";
 import {EventTracker} from "./event_tracker.js";
+import {ExternalModels} from "./external_models.js";
 import {Extruder} from "./extruder.js";
 import {FetchQueue} from "./fetch_queue.js";
 import {Settings} from "./settings.js";
@@ -53,6 +54,11 @@ class App {
     this.container = container;
     this.camera = null;
     this.scene = new THREE.Scene();
+window.app = this;
+    if (Settings.fog) {
+      this.fog = new THREE.Fog(Settings.fog.color, Settings.fog.near, Settings.fog.far);
+      this.scene.fog = this.fog;
+    }
     this.sceneOriginDegrees = new THREE.Vector2(Settings.origin.longitudeInMicroDegrees / 1.0e6,
                                                 Settings.origin.latitudeInMicroDegrees / 1.0e6);
     this.coords = new Coords(this.sceneOriginDegrees);
@@ -210,6 +216,7 @@ class App {
     const windowTreatmentColor = Colors.chooseRandom("concrete", featureId + "windowTreatment");
     const roofCorniceColor = Colors.chooseRandom("concrete", featureId + "roofCornice");
     const stairColor = Colors.chooseRandom("stone", featureId);
+for (let i=0; i<stairColor.length; ++i) { stairColor[i] *= 0.95; }
     const doorColor = blackColor;
     const storeFrontColor = Colors.chooseRandom("concrete", featureId + "storeFront");
 
@@ -217,21 +224,27 @@ class App {
       if (mtlName.startsWith("front") || mtlName.startsWith("default")) {
         mtlCreator.materialsInfo[mtlName].ka = buildingColor;
         mtlCreator.materialsInfo[mtlName].kd = buildingColor;
+        mtlCreator.materialsInfo[mtlName].ks = buildingColor;
       } else if (mtlName.startsWith("cornice")) {
         mtlCreator.materialsInfo[mtlName].ka = windowTreatmentColor;
         mtlCreator.materialsInfo[mtlName].kd = windowTreatmentColor;
         mtlCreator.materialsInfo[mtlName].ks = blackColor;
+        mtlCreator.materialsInfo[mtlName].ns = 0;
       } else if (mtlName.startsWith("sill")) {
         mtlCreator.materialsInfo[mtlName].ka = windowTreatmentColor;
         mtlCreator.materialsInfo[mtlName].kd = windowTreatmentColor;
         mtlCreator.materialsInfo[mtlName].ks = blackColor;
+        mtlCreator.materialsInfo[mtlName].ns = 0;
       } else if (mtlName.startsWith("roofcornice")) {
         mtlCreator.materialsInfo[mtlName].ka = roofCorniceColor;
         mtlCreator.materialsInfo[mtlName].kd = roofCorniceColor;
         mtlCreator.materialsInfo[mtlName].ks = roofCorniceColor;
+        mtlCreator.materialsInfo[mtlName].ns = 0;
       } else if (mtlName.startsWith("stair")) {
         mtlCreator.materialsInfo[mtlName].ka = stairColor;
         mtlCreator.materialsInfo[mtlName].kd = stairColor;
+        mtlCreator.materialsInfo[mtlName].ks = [0.2, 0.2, 0.2];
+        mtlCreator.materialsInfo[mtlName].ns = 0;
       } else if (mtlName.startsWith("doorcasing")) {
         mtlCreator.materialsInfo[mtlName].ka = buildingColor;
         mtlCreator.materialsInfo[mtlName].kd = buildingColor;
@@ -364,13 +377,23 @@ class App {
 
   initializeLights() {
     // Add ambient lights.
+
+window.lights = {
+  directional: []
+};
+window.refresh = () => {
+  this.requestRender();
+}
+
     Settings.lights.Ambient.forEach((item) => {
-      this.scene.add(new THREE.AmbientLight(item.color, item.intensity));
+window.lights.ambient = new THREE.AmbientLight(item.color, item.intensity);
+      this.scene.add(window.lights.ambient);
     });
     // Add directional lights (no shadows).
     Settings.lights.directional.forEach((item) => {
       const light = new THREE.DirectionalLight(item.color, item.intensity);
       light.position.set(item.position.x, item.position.y, item.position.z);
+window.lights.directional.push(light);
       this.scene.add(light);
     });
   }
@@ -541,6 +564,9 @@ class App {
         //console.log('feature is not supported for rendering.');
       }
       if (extrusion != null) {
+if (features[i].properties.name == 'St George Church') {
+  continue;
+}
         this.featureIdToObjectDetails[features[i].properties.id] = {
           bBoxString: tileDetails.tile.getBBoxString(),
           properties: features[i].properties,
@@ -549,9 +575,38 @@ class App {
         extrusion.visible = App.featureVisibleInYear(features[i], this.year);
         tileDetails.object3D.add(extrusion);
         tileDetails.featureIds.push(features[i].properties.id);
+if (features[i].properties.id in ExternalModels) {
+  this.fetchExternalModelAndReplaceExtrusion(features[i],
+                                             ExternalModels[features[i].properties.id],
+                                             tileDetails);
+} else {
         this.fetch3DModelAndReplaceExtrusionIfFound(features[i], tileDetails, i);
+}
       }
     }
+  }
+
+  fetchExternalModelAndReplaceExtrusion(feature, externalModel, tileDetails) {
+    const baseLonLat = new THREE.Vector2(externalModel.longitudeInMicroDegrees / 1e6,
+                                         externalModel.latitudeInMicroDegrees / 1e6);
+    const baseSceneCoords = this.coords.lonLatDegreesToSceneCoords(baseLonLat);
+    let mtlLoader = new THREE.MTLLoader();
+    mtlLoader.setMaterialOptions({side: THREE.DoubleSide});
+    mtlLoader.load(externalModel.mtl, (materials) => {
+       let objLoader = new THREE.OBJLoader();
+       objLoader.setMaterials(materials).load(externalModel.obj, (object3D) => {
+         object3D.scale.set(Settings.buildingXZScaleShrinkFactor * externalModel.scaleToMeters,
+                          externalModel.scaleToMeters,
+                          Settings.buildingXZScaleShrinkFactor * externalModel.scaleToMeters);
+         object3D.position.x = baseSceneCoords.x;
+         object3D.position.z = baseSceneCoords.y;
+         tileDetails.object3D.remove(this.featureIdToObjectDetails[feature.properties.id].object3D);
+         object3D.visible = App.featureVisibleInYear(feature, this.year);
+         tileDetails.object3D.add(object3D);
+         this.featureIdToObjectDetails[feature.properties.id].object3D = object3D;
+         this.requestRender();
+       });
+    });
   }
 
   fetch3DModelAndReplaceExtrusionIfFound(feature, tileDetails, i) {

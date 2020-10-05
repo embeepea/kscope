@@ -1,0 +1,110 @@
+.kartta-cookie-bar {
+    background-color: #eeeeee;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    border-bottom: 1px solid black;
+    padding: 0.8rem 2rem;
+}
+
+.kartta-cookie-bar-left {
+    margin: 0;
+}
+
+.kartta-cookie-bar-ok-link {
+    font-weight: 600;
+    padding: 6px 6px 6px 6px;
+    border-radius: 4px;
+    text-transform: uppercase;
+    background: #ed220d;
+    color: white !important;
+}
+
+
+.kartta-app-menu-hidden {
+  display: none;
+}
+
+.kartta-app-menu-logo {
+  width:136px;
+  height:42px;
+  margin: 0;
+  padding: 0;
+}
+
+.kartta-logo-wrapper {
+  margin: 0;
+  padding: 0;
+  width: 136px;
+  height: 42px;
+  position: relative;
+}
+
+.kartta-menu-placer {
+  margin: 0;
+  padding: 0;
+  position: absolute;
+  top: -3px;
+  left: 3px;
+}
+
+.kartta-menu-item {
+  font-size: 16pt;
+  padding-left: 10px;
+  padding-right: 10px;
+  color: #ed220d;
+  border-bottom: 1px solid black;
+  background: white;
+  font-family: 'Zilla Slab', serif;
+}
+
+.kartta-menu-item:hover {
+  color: white;
+  background: #ed220d;
+}
+
+.kartta-app-menu-dropdown a {
+  text-decoration: none;
+}
+
+.kartta-app-menu-dropdown {
+  border: 1px solid black;
+  border-radius: 5px;
+}
+
+.kartta-footer-opaque {
+  margin: 10px;
+  width: 100%;
+}
+
+.kartta-footer-overlay {
+  position: absolute;
+  bottom: 0;
+  width: 100%;
+  margin-bottom: 5px;
+  z-index: 10000;
+}
+
+.kartta-footer-overlay-container {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+}
+
+.kartta-footer-background {
+  background-color: rgba(255,255,255,0.4);
+  padding: 5px;
+  border-radius: 5px;
+}
+
+.kartta-footer-item {
+  display: inline-block;
+}
+
+.kartta-footer-separator {
+  display: inline-block;
+  margin-left: 5px;
+  margin-right: 5px;
+}
+
+@import url('https://fonts.googleapis.com/css2?family=Zilla+Slab:wght@600&display=swap');
