@@ -502,7 +502,7 @@ window.lights.directional.push(light);
             asphalt.wrapT = THREE.RepeatWrapping;
             const planeMaterial = new THREE.MeshStandardMaterial({
               map: asphalt,
-              color: new THREE.Color(.2,.2,.2),
+              color: new THREE.Color(.5,.5,.5),
               side: THREE.DoubleSide
             });
             const planeGeometry = new THREE.PlaneGeometry(Settings.farPlane, Settings.farPlane);
