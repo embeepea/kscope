@@ -113,6 +113,14 @@ window.app = this;
       if (e.button == 2) {
         // noop
       }
+    }).setTouchStartListener(p => {
+    }).setTouchMoveListener((p,dp) => {
+        const xangle = 0.25 * (dp.y / this.container.offsetWidth) * Math.PI;
+        const yangle = 0.25 * (dp.x / this.container.offsetWidth) * Math.PI;
+
+        this.cameraXAngle += xangle;
+        this.cameraYAngle += yangle;
+        this.updateCamera();
     }).setMouseUpListener(e => {
       //console.log('mouseUp: e = ', e);
     }).setMouseDragListener((p, dp, button) => {
@@ -150,6 +158,14 @@ window.app = this;
       ? parseInt(feature.properties['end_date'])
       : 10000;
     return start_date <= year && year < end_date;
+  }
+
+  /*
+   * Adjust to a new container size.  Call this e.g. when the browser window size changes.
+   */
+  resize() {
+    this.renderer.setSize( this.container.offsetWidth, this.container.offsetHeight );
+    this.requestRender();
   }
 
   /*
@@ -516,6 +532,8 @@ window.lights.directional.push(light);
   processFeatures(response, tileDetails) {
     const features = response.data;
 
+    const featuresToRequest3DModelsFor = [];
+
     for (let i = 0; i < features.length; i++) {
       if (features[i].properties.id in this.featureIdToObjectDetails) {
         // object has already been loaded from another tile, so skip it
@@ -580,53 +598,141 @@ if (features[i].properties.id in ExternalModels) {
                                              ExternalModels[features[i].properties.id],
                                              tileDetails);
 } else {
-        this.fetch3DModelAndReplaceExtrusionIfFound(features[i], tileDetails, i);
+        featuresToRequest3DModelsFor.push(features[i]);
 }
       }
     }
+    this.fetch3DModelsAndReplaceExtrusionsIfFound(featuresToRequest3DModelsFor,tileDetails);
   }
 
-  fetchExternalModelAndReplaceExtrusion(feature, externalModel, tileDetails) {
-    const baseLonLat = new THREE.Vector2(externalModel.longitudeInMicroDegrees / 1e6,
-                                         externalModel.latitudeInMicroDegrees / 1e6);
-    const baseSceneCoords = this.coords.lonLatDegreesToSceneCoords(baseLonLat);
-    let mtlLoader = new THREE.MTLLoader();
-    mtlLoader.setMaterialOptions({side: THREE.DoubleSide});
-    mtlLoader.load(externalModel.mtl, (materials) => {
-       let objLoader = new THREE.OBJLoader();
-       objLoader.setMaterials(materials).load(externalModel.obj, (object3D) => {
-         object3D.scale.set(Settings.buildingXZScaleShrinkFactor * externalModel.scaleToMeters,
-                          externalModel.scaleToMeters,
-                          Settings.buildingXZScaleShrinkFactor * externalModel.scaleToMeters);
-         object3D.position.x = baseSceneCoords.x;
-         object3D.position.z = baseSceneCoords.y;
-         tileDetails.object3D.remove(this.featureIdToObjectDetails[feature.properties.id].object3D);
-         object3D.visible = App.featureVisibleInYear(feature, this.year);
-         tileDetails.object3D.add(object3D);
-         this.featureIdToObjectDetails[feature.properties.id].object3D = object3D;
-         this.requestRender();
-       });
+  processTileZip(features, tileDetails, zip) {
+    const buildingIdToFeature = {};
+    features.forEach(feature => {
+      buildingIdToFeature[feature.properties.id] = feature;
+    });
+
+
+    // buildingData keys will be building ids, values are objects with this structure:
+    //   {
+    //     mtl: {
+    //       promise: <promise which resolves to contents of the contained mtl file>
+    //       path: <name of the contained mtl file>
+    //     }
+    //     obj: {
+    //       promise: <promise which resolves to contents of the contained obj file>
+    //       path: <name of the contained obj file>
+    //     }
+    //   }
+    const buildingData = {};
+
+    // metadata will hold the contents of the "metadata.json" file in the outer zip file
+    const metadata = {};
+
+    // Create promises for reading all the objects in the outer zip file
+    const promises = [];
+    zip.forEach((path,file) => {
+      if (path.endsWith(".json")) {
+        promises.push(file.async("text").then(content => {
+          const parsedMetadata = JSON.parse(content);
+          Object.keys(parsedMetadata).forEach(buildingId => {
+            metadata[buildingId] = JSON.parse(parsedMetadata[buildingId]);
+          });
+        }));
+      } else if (path.endsWith(".zip")) {
+        // translate inner zip file name to building id
+        const buildingId = path.replace(/.zip$/, '').replace('_','/');
+        // read the inner zip file contents
+        promises.push(file.async("blob").then(JSZip.loadAsync).then(izip => {
+          buildingData[buildingId] = {};
+          izip.forEach((ipath,ifile) => {
+            if (ipath.endsWith(".mtl")) {
+              buildingData[buildingId].mtl = {
+                promise: ifile.async("text"),
+                path: path
+              };
+            } else if (ipath.endsWith(".obj")) {
+              buildingData[buildingId].obj = {
+                promise: ifile.async("text"),
+                path: path
+              };
+            }
+          });
+        }));
+      }
+    });
+
+    // One all the promises from the outer zip file have resolved, read the inner zip files
+    // to create the actual Object3Ds.
+    Promise.all(promises).then(() => {
+      Object.keys(buildingData).forEach(buildingId => {
+        const mtl = buildingData[buildingId].mtl;
+        const obj = buildingData[buildingId].obj;
+        mtl.promise.then(content => {
+          const mtlLoader = new THREE.MTLLoader();
+          mtlLoader.setMaterialOptions({side: THREE.DoubleSide});
+          const mtlCreator = mtlLoader.parse(content, mtl.path);
+          this.recolorMaterials(mtlCreator, buildingId);
+          obj.promise.then(content => {
+            const objLoader = new THREE.OBJLoader();
+            objLoader.setMaterials(mtlCreator);
+            const object3D = objLoader.parse(content);
+            this.replaceExtrusionWithObject3D(buildingIdToFeature[buildingId], object3D, tileDetails);
+          }, error => {
+            reject(new Error("Error reading obj file in " + obj.path));
+          });
+        }, error => {
+          reject(new Error("Error reading mtl file in " + mtl.path));
+
+        });
+      });
+    });
+
+  }
+
+  fetch3DModelsAndReplaceExtrusionsIfFound(features, tileDetails) {
+    const buildingIds = features.map(feature => feature.properties.id);
+    const url = Settings.reservoir_url + '/api/v1/download/batch/building_id/';
+    fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        building_ids: buildingIds
+      })
+    })
+    .then(function (response) {
+      if (response.status === 200 || response.status === 0) {
+        return Promise.resolve(response.blob());
+      } else {
+        return Promise.reject(new Error(response.statusText));
+      }
+    })
+    .then(JSZip.loadAsync)
+    .then(zip => {
+      this.processTileZip(features, tileDetails, zip);
+    })
+    .catch(error => {
     });
   }
 
-  fetch3DModelAndReplaceExtrusionIfFound(feature, tileDetails, i) {
+  replaceExtrusionWithObject3D(feature, object3D, tileDetails) {
     const baseArray = feature.geometry.coordinates[0][0];
     const baseSceneCoords = this.coords.lonLatDegreesToSceneCoords(new THREE.Vector2(baseArray[0], baseArray[1]));
-    const url = Settings.reservoir_url + '/api/v1/download/building_id/' + feature.properties.id + '/';
-    this.loadObjFromZipUrl(url, feature.properties.id).then((object3D) => {
-      object3D.position.x = baseSceneCoords.x;
-      object3D.position.y = 0;
-      object3D.position.z = baseSceneCoords.y;
-      tileDetails.object3D.remove(this.featureIdToObjectDetails[feature.properties.id].object3D);
-      object3D.visible = App.featureVisibleInYear(feature, this.year);
-      tileDetails.object3D.add(object3D);
-      this.featureIdToObjectDetails[feature.properties.id].object3D = object3D;
-      this.requestRender();
-    });
+    object3D.position.x = baseSceneCoords.x;
+    object3D.position.y = 0;
+    object3D.position.z = baseSceneCoords.y;
+    tileDetails.object3D.remove(this.featureIdToObjectDetails[feature.properties.id].object3D);
+    object3D.visible = App.featureVisibleInYear(feature, this.year);
+    tileDetails.object3D.add(object3D);
+    this.featureIdToObjectDetails[feature.properties.id].object3D = object3D;
+    this.requestRender();
   }
 
-  // Request a single render pass in the next animation frame, unless one has already
-  // been requested (no point in rendering twice for the same frame).
+  // Request a single re-render in the next possible animation frame.  Note this function does not
+  // actually perform a render -- it just requests that one be done at the next possible time.
+  // Calling this multiple times before the next animation frame will result in only one re-render
+  // on that frame, no matter how many times it was called.
   requestRender() {
     if (this.renderRequested) {
       return;
