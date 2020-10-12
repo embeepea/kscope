@@ -26,13 +26,17 @@ import {Util} from "./util.js";
 import {Tile, Tiler} from "./tiles.js";
 
 
-window.yodoit = (c,msg) => {
-  if (msg) {
-    console.log(msg+' keys(c materials)=',Object.keys(c.materials));
-  } else {
-    console.log('keys(c materials)=',Object.keys(c.materials));
+let _wayIdToModelFileBase = false;
+const WayIdToModelFileBase = (wayId) => {
+  if (!_wayIdToModelFileBase) {
+    _wayIdToModelFileBase = {};
+    models.forEach(m => {
+      _wayIdToModelFileBase[m['id']] = m['obj'].replace(/^\.\//, '').replace(/\.obj$/, '');
+    });
   }
+  return wayId in _wayIdToModelFileBase ? _wayIdToModelFileBase[wayId] : null;
 };
+
 
 class App {
   /**
@@ -235,6 +239,7 @@ window.app = this;
 for (let i=0; i<stairColor.length; ++i) { stairColor[i] *= 0.95; }
     const doorColor = blackColor;
     const storeFrontColor = Colors.chooseRandom("concrete", featureId + "storeFront");
+    const roofColor = Colors.chooseRandom("roof", featureId + "roof");
 
     Object.keys(mtlCreator.materialsInfo).forEach(mtlName => {
       if (mtlName.startsWith("front") || mtlName.startsWith("default")) {
@@ -267,9 +272,20 @@ for (let i=0; i<stairColor.length; ++i) { stairColor[i] *= 0.95; }
       } else if (mtlName.startsWith("door")) {
         mtlCreator.materialsInfo[mtlName].ka = doorColor;
         mtlCreator.materialsInfo[mtlName].kd = doorColor;
+      } else if (mtlName.startsWith("roof")) {
+        mtlCreator.materialsInfo[mtlName].ka = roofColor;
+        mtlCreator.materialsInfo[mtlName].kd = roofColor;
+        mtlCreator.materialsInfo[mtlName].ks = roofColor;
+        mtlCreator.materialsInfo[mtlName].ns = 5;
       } else if (mtlName.startsWith("storefront")) {
         mtlCreator.materialsInfo[mtlName].ka = storeFrontColor;
         mtlCreator.materialsInfo[mtlName].kd = storeFrontColor;
+      } else if (mtlName.match(/^window\d+$/)) {
+        mtlCreator.materialsInfo[mtlName].ka = [0.1, 0.1, 0.1];
+        mtlCreator.materialsInfo[mtlName].kd = [0.1, 0.1, 0.1];
+        mtlCreator.materialsInfo[mtlName].ks = [0.3, 0.3, 0.3];
+        mtlCreator.materialsInfo[mtlName].ns = 10;
+        mtlCreator.materialsInfo[mtlName].d = 0.85;
       }
     });
   }
@@ -598,11 +614,44 @@ if (features[i].properties.id in ExternalModels) {
                                              ExternalModels[features[i].properties.id],
                                              tileDetails);
 } else {
-        featuresToRequest3DModelsFor.push(features[i]);
+        //featuresToRequest3DModelsFor.push(features[i]);
+
+  const modelFileBase = WayIdToModelFileBase(features[i].properties.id);
+  if (modelFileBase) {
+    const zipUrl = './waybak_reconstruction_2020-10-12-02-49/' + modelFileBase + '.zip';
+    this.loadObjFromZipUrl(zipUrl, features[i].properties.id).then(object3D => {
+            this.replaceExtrusionWithObject3D(features[i], object3D, tileDetails);
+    });
+  }
+
 }
       }
     }
-    this.fetch3DModelsAndReplaceExtrusionsIfFound(featuresToRequest3DModelsFor,tileDetails);
+//    this.fetch3DModelsAndReplaceExtrusionsIfFound(featuresToRequest3DModelsFor,tileDetails);
+  }
+
+
+  fetchExternalModelAndReplaceExtrusion(feature, externalModel, tileDetails) {
+    const baseLonLat = new THREE.Vector2(externalModel.longitudeInMicroDegrees / 1e6,
+                                         externalModel.latitudeInMicroDegrees / 1e6);
+    const baseSceneCoords = this.coords.lonLatDegreesToSceneCoords(baseLonLat);
+    let mtlLoader = new THREE.MTLLoader();
+    mtlLoader.setMaterialOptions({side: THREE.DoubleSide});
+    mtlLoader.load(externalModel.mtl, (materials) => {
+       let objLoader = new THREE.OBJLoader();
+       objLoader.setMaterials(materials).load(externalModel.obj, (object3D) => {
+         object3D.scale.set(Settings.buildingXZScaleShrinkFactor * externalModel.scaleToMeters,
+                          externalModel.scaleToMeters,
+                          Settings.buildingXZScaleShrinkFactor * externalModel.scaleToMeters);
+         object3D.position.x = baseSceneCoords.x;
+         object3D.position.z = baseSceneCoords.y;
+         tileDetails.object3D.remove(this.featureIdToObjectDetails[feature.properties.id].object3D);
+         object3D.visible = App.featureVisibleInYear(feature, this.year);
+         tileDetails.object3D.add(object3D);
+         this.featureIdToObjectDetails[feature.properties.id].object3D = object3D;
+         this.requestRender();
+       });
+    });
   }
 
   processTileZip(features, tileDetails, zip) {

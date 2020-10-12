@@ -74,8 +74,8 @@ let Settings = {
   'colorVariationOfExtrudedModels': 0.1,
 
   'year': 1940,
-  'tilesize' : 1000,
-  'fetchradius' : 8,
+  'tilesize' : 10000, // 1000,
+  'fetchradius' : 1, // 8,
   'dropradius' : 11,
   'speed' : 1.0,
   'debug' : false,
