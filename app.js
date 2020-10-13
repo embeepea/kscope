@@ -236,7 +236,7 @@ window.app = this;
     const windowTreatmentColor = Colors.chooseRandom("concrete", featureId + "windowTreatment");
     const roofCorniceColor = Colors.chooseRandom("concrete", featureId + "roofCornice");
     const stairColor = Colors.chooseRandom("stone", featureId);
-for (let i=0; i<stairColor.length; ++i) { stairColor[i] *= 0.95; }
+//for (let i=0; i<stairColor.length; ++i) { stairColor[i] *= 0.95; }
     const doorColor = blackColor;
     const storeFrontColor = Colors.chooseRandom("concrete", featureId + "storeFront");
     const roofColor = Colors.chooseRandom("roof", featureId + "roof");
